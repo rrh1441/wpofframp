@@ -290,14 +290,28 @@ export default function HeroPreview() {
              </div>
            </div>
            <hr className="my-4"/>
+           
            {/* Render Active Theme Layout */}
-           <div className="min-h-[200px]"> {/* Min height to prevent collapse */}
-               {isLoading && !activePreviewData ? renderSkeleton() : !activePreviewData ? ( // Show skeleton ONLY if loading AND no data for *this* theme exists
-                   <div className="text-center py-10 text-muted-foreground">Generate preview to see content for the '{THEMES[activeTheme].name}' theme.</div>
-               ) : (
-                    // Render the specific layout component for the active theme
-                    <ActiveLayout mdxContent={activePreviewData.mdx?.replace(/^---[\s\S]*?---/, '').trim() || ""} />
-               )}
+           <div className="min-h-[200px] relative"> {/* Min height to prevent collapse */}
+             {isLoading && !activePreviewData ? (
+                renderSkeleton()
+             ) : !activePreviewData ? (
+                <div className="text-center py-10 text-muted-foreground">Generate preview to see content for the '{THEMES[activeTheme].name}' theme.</div>
+             ) : (
+                <>
+                  {/* Debug info in development */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="bg-black/10 px-2 py-1 mb-2 text-xs rounded">
+                      <div>Theme: {activeTheme} | MDX Length: {activePreviewData.mdx?.length || 0} chars</div>
+                    </div>
+                  )}
+                
+                  {/* Render the specific layout component for the active theme */}
+                  <ActiveLayout 
+                    mdxContent={activePreviewData.mdx?.replace(/^---[\s\S]*?---/, '').trim() || ""} 
+                  />
+                </>
+             )}
            </div>
         </TabsContent>
       </Tabs>
