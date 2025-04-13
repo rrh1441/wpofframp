@@ -1,90 +1,65 @@
 // lib/constants.ts
 export const SESSION_COOKIE_NAME = 'wp_offramp_migrated';
 
-// Define theme details - adjust descriptions or add more specific details if needed
+// Define theme details - Use 'modern' key instead of 'clarity'
 export const THEMES = {
-  clarity: {
-    name: 'Clarity',
+  modern: { // Renamed from clarity
+    name: 'Modern',
     description:
-      'Minimalist design with focus on readability. Perfect for blogs and personal sites.',
+      'Clean, minimalist design with focus on readability. Perfect for most blogs and articles.',
     prompt: `
-Theme: Clarity
+Theme: Modern (Clarity)
 
-- Focus on clean typography and whitespace.
-- Standard Markdown elements (headings, paragraphs, lists, links).
-- Use blockquotes (>) for quotes.
-- Minimal decoration. Ensure excellent readability.
+- Focus on clean typography and whitespace using standard Markdown.
+- Use standard Markdown elements (headings #/##/###, paragraphs, lists, links [text](url), **bold**, *italic*).
+- Use blockquotes (>) for standard quotes.
+- Ensure excellent readability with default prose styling.
 - Images should be standard Markdown images: ![alt text](url)
 `,
   },
-  momentum: {
-    name: 'Momentum',
-    description:
-      'Bold and dynamic with vibrant accents. Ideal for businesses and startups.',
-    prompt: `
-Theme: Momentum
-
-- Use strong headings (##, ###).
-- Emphasize key phrases with **bold text**.
-- Use horizontal rules (<hr />) sparingly for separation.
-- Create distinct sections.
-- Images are important: ![alt text](url)
-`,
-  },
-  serenity: {
-    name: 'Serenity',
-    description:
-      'Elegant and calm with soft color palette. Great for portfolios and creative work.',
-    prompt: `
-Theme: Serenity
-
-- Softer visual tone. Use italics (*) for emphasis sometimes.
-- Use blockquotes (>) for highlighting passages or quotes.
-- Generous spacing between paragraphs.
-- Images should flow with text: ![alt text](url)
-`,
-  },
   drudge: {
-    name: 'Drudge Report',
+    name: 'Drudge', // Keep description simple if name is descriptive
     description: 'Retro news feed style with emphasis on headlines.',
     prompt: `
 Theme: Drudge Report
 
-- ALL CAPS for main headlines (# ).
-- Use ALL CAPS for subheadings (##, ###).
-- Underline links using raw HTML: <a href="..." target="_blank" rel="noopener noreferrer" style="text-decoration: underline;">LINK TEXT</a>. Avoid standard Markdown links.
-- Prefer text over images. If an image is essential, use standard Markdown: ![alt text](url).
-- Use <hr /> frequently to separate items or sections.
-- Mimic a simple, dense news feed structure. Keep paragraphs short.
-`,
-  },
-  ghibli: {
-    name: 'Ghibli Journal',
-    description: 'Whimsical and soft, like a journal entry.',
-    prompt: `
-Theme: Ghibli Journal
-
-- Soft visual tone. Use gentle headings (##, ###).
-- Use Markdown blockquotes (>) for notes or asides (like a <Callout>).
-- Center essential images using Markdown syntax: ![alt text](url). If centering is critical and Markdown doesn't suffice, use <div style="text-align: center;"><img src="..." alt="..."></div>. Prefer Markdown where possible.
-- Use thematic breaks (<hr />) styled as subtle dividers, or suggest spacing via Markdown paragraphs. Let Tailwind handle visual spacing like <div class="my-8" /> in the template itself.
-- Focus on narrative flow.
+- Output main headlines (# H1) and subheadlines (## H2, ### H3) in ALL CAPS directly in the text.
+- Use standard Markdown paragraphs for body text. Keep paragraphs relatively short.
+- Convert ALL HTML links (<a> tags) to standard Markdown links: [LINK TEXT](URL). Do NOT use raw HTML for links.
+- Prefer text over images. If an image is essential, use standard Markdown: ![alt text](URL).
+- Use standard Markdown horizontal rules (---) frequently to separate logical items or sections.
+- Mimic a simple, dense news feed structure.
 `,
   },
   matrix: {
-    name: 'Matrix Feed',
+    name: 'Matrix',
     description: 'Monospaced, code-focused, minimal decoration.',
     prompt: `
 Theme: Matrix Feed
 
-- Use primarily standard Markdown, but wrap technical terms, commands, or code snippets in backticks (\`like this\`).
-- Use fenced code blocks (\`\`\`language\ncode\n\`\`\`) for larger code examples.
-- Headings (#, ##) should be simple and direct.
-- Avoid decorative elements like blockquotes or horizontal rules unless structurally necessary.
-- Focus on clear information hierarchy and structure, not visual flair. Links should be standard Markdown [text](url).
+- Use primarily standard Markdown for text, headings, lists, links.
+- Wrap technical terms, commands, or code snippets in inline backticks (\`like this\`).
+- Use fenced code blocks (\`\`\`language\ncode\n\`\`\`) for larger code examples. Ensure the language identifier is present if discernible, otherwise use \`\`\`text or just \`\`\`.
+- Headings (#, ##) should be simple and direct standard Markdown.
+- Avoid decorative elements like blockquotes or horizontal rules unless structurally necessary for separating distinct code/text blocks.
+- Focus on clear information hierarchy and structure. Standard Markdown links [text](url).
 `,
   },
-} as const; // Use 'as const' for stricter typing
+  ghibli: {
+    name: 'Ghibli', // Keep description simple if name is descriptive
+    description: 'Whimsical and soft, like a journal entry.',
+    prompt: `
+Theme: Ghibli Journal
+
+- Soft visual tone. Use gentle headings (## H2, ### H3). Standard Markdown for emphasis (*italic*, **bold**).
+- Use standard Markdown blockquotes (>) extensively for notes, asides, or highlighted text passages that should look like callouts.
+- Ensure generous spacing between paragraphs (standard Markdown paragraph breaks).
+- Images should be standard Markdown: ![alt text](URL).
+- Use thematic breaks (---) sparingly, styled as subtle dividers.
+- Focus on narrative flow.
+`,
+  },
+} as const;
 
 export type ThemeKey = keyof typeof THEMES;
 
