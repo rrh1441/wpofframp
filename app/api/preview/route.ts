@@ -4,16 +4,16 @@ import { fetchWpContent, WpContent } from '@/lib/fetchWpContent';
 import { transformToMdx, MdxOutput } from '@/lib/transformToMdx';
 import { isValidTheme, ThemeKey } from '@/lib/constants';
 
-export interface PreviewData extends WpContent, MdxOutput {
-  // Combines fields from both interfaces
-  originalHtml: string; // Add original HTML for the 'Original' tab
+export interface PreviewResult extends WpContent, MdxOutput {
+  // Combines fields from both interfaces + originalHtml
+  originalHtml: string;
+  theme: ThemeKey; // Add the theme key to the result object
 }
-
-// Can potentially add caching here later using Vercel KV or similar
 
 export async function POST(request: NextRequest) {
   let wpUrl: string | undefined;
   let theme: string | undefined;
+  let themeKey: ThemeKey;
 
   // 1. Parse and Validate Input
   try {
@@ -27,6 +27,8 @@ export async function POST(request: NextRequest) {
     if (!theme || typeof theme !== 'string' || !isValidTheme(theme)) {
       return NextResponse.json({ error: 'Missing or invalid theme' }, { status: 400 });
     }
+    themeKey = theme; // Assign the validated theme key
+
      try {
        new URL(wpUrl);
      } catch (_) {
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  console.log(`[API /preview] Processing URL: ${wpUrl}, Theme: ${theme}`);
+  console.log(`[API /preview] Processing URL: ${wpUrl}, Theme: ${themeKey}`);
 
   // --- Start Preview Process ---
   try {
@@ -46,8 +48,10 @@ export async function POST(request: NextRequest) {
     const wpData = await fetchWpContent(wpUrl);
     if (wpData.error) {
       console.error('[API /preview] Error fetching WP content:', wpData.error);
-      // Return the error structure expected by the frontend
-      return NextResponse.json({ error: wpData.error }, { status: wpData.status || 500 });
+      return NextResponse.json(
+        { error: wpData.error },
+        { status: wpData.status || 500 }
+      );
     }
     console.log(`[API /preview] Fetched content: Title - ${wpData.title}`);
 
@@ -55,7 +59,7 @@ export async function POST(request: NextRequest) {
     console.log('[API /preview] Transforming HTML to MDX...');
     const mdxResult = await transformToMdx({
       htmlContent: wpData.content,
-      theme: theme as ThemeKey,
+      theme: themeKey,
       title: wpData.title,
       date: wpData.date,
       author: wpData.author,
@@ -64,30 +68,34 @@ export async function POST(request: NextRequest) {
 
     if (mdxResult.error) {
       console.error('[API /preview] Error transforming to MDX:', mdxResult.error);
-      // Return the error structure expected by the frontend
-      return NextResponse.json({ error: `MDX transformation failed: ${mdxResult.error}` }, { status: 500 });
+      return NextResponse.json(
+        { error: `MDX transformation failed: ${mdxResult.error}` },
+        { status: 500 }
+      );
     }
     console.log('[API /preview] MDX transformation successful.');
 
     // 4. Prepare and Return Preview Data
-    const previewData: PreviewData = {
-      // From WpContent (fetchWpContent result)
+    const resultData: PreviewResult = {
+      // From WpContent
       title: wpData.title,
-      content: wpData.content, // Keep original content field name if needed, or just use originalHtml
+      content: wpData.content, // Original content is still useful
       date: wpData.date,
       author: wpData.author,
       featuredImage: wpData.featuredImage,
-      // Add originalHtml specifically for the frontend tab
+      // Specific fields for frontend
       originalHtml: wpData.content,
-      // From MdxOutput (transformToMdx result)
+      // From MdxOutput
       mdx: mdxResult.mdx,
       frontmatter: mdxResult.frontmatter,
-      // Explicitly clear error/status from wpData if fetch was successful
+      // Add theme key
+      theme: themeKey,
+      // Clear errors if successful
       error: undefined,
       status: undefined,
     };
 
-    return NextResponse.json(previewData, { status: 200 });
+    return NextResponse.json(resultData, { status: 200 });
 
   } catch (error: any) {
     console.error('[API /preview] Unhandled error during preview process:', error);
