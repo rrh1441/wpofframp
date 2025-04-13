@@ -12,6 +12,7 @@ import { Download, Loader2, AlertCircle, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { THEMES, ThemeKey } from "@/lib/constants"; // Use updated constants
+import CSSDebugger from '@/components/CSSDebugger';
 import type { PreviewResult } from "@/app/api/preview/route"; // Use updated type
 
 // Import the new theme layout components
