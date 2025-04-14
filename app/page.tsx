@@ -36,9 +36,10 @@ export default function Home() {
       <main className="flex-1">
         <section id="top" className="w-full py-12 md:py-24 lg:py-32">
           <div className="container px-4 md:px-6">
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-center">
-              {/* Left column - Text content (40%) */}
-              <div className="lg:col-span-2 flex flex-col justify-center space-y-6">
+            {/* Hero section - Stacked vertically instead of side-by-side */}
+            <div className="flex flex-col items-center space-y-12">
+              {/* Hero copy - Now on top */}
+              <div className="flex flex-col justify-center space-y-6 text-center max-w-3xl mx-auto">
                 <div className="space-y-4">
                   <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl xl:text-5xl/none">
                     The Escape Hatch from WordPress
@@ -49,7 +50,7 @@ export default function Home() {
                     No plugin chaos. No security holes. Clean, fast, and fully yours.
                   </p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <Button size="lg" asChild>
                     <a href="#features">
                       Learn More <ArrowRight className="ml-2 h-4 w-4" />
@@ -58,8 +59,8 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Right column - Preview (60%) */}
-              <div className="lg:col-span-3">
+              {/* Preview - Now below the hero copy, full width */}
+              <div className="w-full">
                 <HeroPreview />
               </div>
             </div>
@@ -127,21 +128,26 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="mx-auto grid max-w-5xl items-center gap-6 py-12 lg:grid-cols-3">
+            <div className="mx-auto grid max-w-5xl items-center gap-6 py-12 lg:grid-cols-4">
               <ThemePreview
-                name="Clarity"
-                description="Minimalist design with focus on readability. Perfect for blogs and personal sites."
-                imageSrc="/placeholder.svg?height=300&width=400"
+                name="Modern"
+                description="Clean, contemporary design focused on readability. Perfect for blogs and professional sites."
+                imageSrc="/themes/modern.png"
               />
               <ThemePreview
-                name="Momentum"
-                description="Bold and dynamic with vibrant accents. Ideal for businesses and startups."
-                imageSrc="/placeholder.svg?height=300&width=400"
+                name="Drudge"
+                description="Bold newspaper style with emphasis on headlines. Great for news sites and commentary."
+                imageSrc="/themes/drudge.png"
               />
               <ThemePreview
-                name="Serenity"
-                description="Elegant and calm with soft color palette. Great for portfolios and creative work."
-                imageSrc="/placeholder.svg?height=300&width=400"
+                name="Matrix"
+                description="Digital, tech-inspired theme with code aesthetics. Ideal for technical blogs."
+                imageSrc="/themes/matrix.png"
+              />
+              <ThemePreview
+                name="Ghibli"
+                description="Serene, artistic design with soft colors. Perfect for creative portfolios and storytelling."
+                imageSrc="/themes/ghibli.png"
               />
             </div>
           </div>

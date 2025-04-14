@@ -293,23 +293,24 @@ export default function HeroPreview() {
            <hr className="my-4"/>
            
            {/* Render Active Theme Layout */}
-           <div className="min-h-[200px] relative"> {/* Min height to prevent collapse */}
+           <div className="min-h-[300px] relative"> {/* Adjusted min height */}
              {isLoading && !activePreviewData ? (
                 renderSkeleton()
              ) : !activePreviewData ? (
                 <div className="text-center py-10 text-muted-foreground">Generate preview to see content for the '{THEMES[activeTheme].name}' theme.</div>
              ) : (
                 <>
-                  {/* Debug info in development */}
+                  {/* Enhanced debug info in development */}
                   {process.env.NODE_ENV === 'development' && (
                     <div className="bg-black/10 px-2 py-1 mb-2 text-xs rounded">
                       <div>Theme: {activeTheme} | MDX Length: {activePreviewData.mdx?.length || 0} chars</div>
+                      <div>First 50 chars: {activePreviewData.mdx?.substring(0, 50)}</div>
                     </div>
                   )}
                 
                   {/* Render the specific layout component for the active theme */}
                   <ActiveLayout 
-                    mdxContent={activePreviewData.mdx?.replace(/^---[\s\S]*?---/, '').trim() || ""} 
+                    mdxContent={activePreviewData.mdx || ""} 
                   />
                 </>
              )}
@@ -321,57 +322,118 @@ export default function HeroPreview() {
 
   // --- Main Component Return ---
   return (
-    <div className="space-y-6">
-      {/* Input Card */}
-      <Card id="input-section">
-         <CardHeader className="pb-3"> <h3 className="text-lg font-medium">1. Enter WordPress Site URL</h3> </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row items-stretch gap-3">
-            <Input id="wordpress-url" type="url" placeholder="https://your-wordpress-site.com" value={url}
-              onChange={(e) => setUrl(e.target.value)} className="flex-1 text-base sm:text-sm" aria-label="WordPress Site URL" disabled={isLoading || isMigrating} />
-            <Button onClick={handleInitialPreview} disabled={!url || isLoading || isMigrating} className="w-full sm:w-auto px-6">
-              {isLoading && Object.keys(previewResults).length === 0 ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</>) : ("Generate Previews")}
-            </Button>
-          </div>
-           {fetchError && Object.keys(previewResults).length === 0 && !isLoading && (<p className="text-sm text-red-600 mt-2">{fetchError}</p>)}
-        </CardContent>
-      </Card>
-
-      {/* Preview Window */}
-      <div className="border rounded-lg overflow-hidden shadow-lg bg-background">
-        <div className="bg-muted border-b px-4 py-2 flex items-center text-xs">
-           <div className="flex space-x-1.5"><div className="w-2.5 h-2.5 rounded-full bg-red-500/90"></div><div className="w-2.5 h-2.5 rounded-full bg-yellow-500/90"></div><div className="w-2.5 h-2.5 rounded-full bg-green-500/90"></div></div>
-           <div className="flex-1 text-center font-medium text-muted-foreground truncate px-4">{Object.values(previewResults)[0]?.title ? `Preview: ${Object.values(previewResults)[0]?.title}` : "WP Offramp Preview"}</div>
-           <div className="w-10"></div>
-        </div>
-        <div className="min-h-[500px] overflow-hidden relative">{renderPreviewArea()}</div>
-      </div>
-
-
-       {/* Migration Card - Show only if we have valid results for the current URL */}
-       {resultsUrl === url && Object.keys(previewResults).length > 0 && (
-            <Card>
-                <CardHeader className="pb-2">
-                    <h3 className="text-lg font-medium">2. Migrate & Download</h3>
-                     <p className="text-sm text-muted-foreground">Generates a complete Next.js project for the <span className="font-medium">{THEMES[activeTheme].name}</span> theme.</p>
-                </CardHeader>
-                <CardContent>
-                     {migrationError && (<Alert variant="destructive" className="mb-4"><AlertCircle className="h-4 w-4" /> <AlertTitle>Migration Error</AlertTitle><AlertDescription>{migrationError}</AlertDescription></Alert>)}
-                     <Button size="lg" onClick={handleMigrate} disabled={isMigrating || isLoading || !previewResults[activeTheme]} className="w-full">
-                        {isMigrating ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Migrating & Zipping... (this can take ~30s)</>) : (<><Download className="mr-2 h-4 w-4" />Migrate & Download ZIP ({THEMES[activeTheme]?.name} Theme)</>)}
-                     </Button>
-                     <p className="text-xs text-muted-foreground mt-2 text-center">Free migration limited to one page per session (per browser, resets hourly).</p>
-                </CardContent>
-            </Card>
+    <div className="flex flex-col w-full">
+      {/* Top Section - Input and Migration */}
+      <div className="max-w-3xl mx-auto w-full mb-6">
+        {/* Input Card */}
+        <Card id="input-section" className="mb-6">
+          <CardHeader className="pb-3"> 
+            <h3 className="text-lg font-medium">1. Enter WordPress Site URL</h3>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row items-stretch gap-3">
+              <Input 
+                id="wordpress-url" 
+                type="url" 
+                placeholder="https://your-wordpress-site.com" 
+                value={url}
+                onChange={(e) => setUrl(e.target.value)} 
+                className="flex-1 text-base sm:text-sm" 
+                aria-label="WordPress Site URL" 
+                disabled={isLoading || isMigrating} 
+              />
+              <Button 
+                onClick={handleInitialPreview} 
+                disabled={!url || isLoading || isMigrating} 
+                className="w-full sm:w-auto px-6"
+              >
+                {isLoading && Object.keys(previewResults).length === 0 ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</>
+                ) : (
+                  "Generate Previews"
+                )}
+              </Button>
+            </div>
+            {fetchError && Object.keys(previewResults).length === 0 && !isLoading && (
+              <p className="text-sm text-red-600 mt-2">{fetchError}</p>
+            )}
+          </CardContent>
+        </Card>
+      
+        {/* Migration Card - Show only if we have valid results for the current URL */}
+        {resultsUrl === url && Object.keys(previewResults).length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <h3 className="text-lg font-medium">2. Migrate & Download</h3>
+              <p className="text-sm text-muted-foreground">
+                Generates a complete Next.js project for the <span className="font-medium">{THEMES[activeTheme].name}</span> theme.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {migrationError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" /> 
+                  <AlertTitle>Migration Error</AlertTitle>
+                  <AlertDescription>{migrationError}</AlertDescription>
+                </Alert>
+              )}
+              <Button 
+                size="lg" 
+                onClick={handleMigrate} 
+                disabled={isMigrating || isLoading || !previewResults[activeTheme]} 
+                className="w-full"
+              >
+                {isMigrating ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Migrating & Zipping... (this can take ~30s)</>
+                ) : (
+                  <><Download className="mr-2 h-4 w-4" />Migrate & Download ZIP ({THEMES[activeTheme]?.name} Theme)</>
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-2 text-center">
+                Free migration limited to one page per session (per browser, resets hourly).
+              </p>
+            </CardContent>
+          </Card>
         )}
+
         {/* Info alert if waiting for input */}
         {!url && !isLoading && Object.keys(previewResults).length === 0 && (
-             <Alert className="mt-6 border-l-primary border-l-4" role="status">
-                <Info className="h-4 w-4"/> <AlertTitle>Enter a URL to Start</AlertTitle>
-                <AlertDescription>Input your public WordPress site URL above to generate previews and enable migration.</AlertDescription>
-             </Alert>
+          <Alert className="mt-6 border-l-primary border-l-4" role="status">
+            <Info className="h-4 w-4"/> 
+            <AlertTitle>Enter a URL to Start</AlertTitle>
+            <AlertDescription>
+              Input your public WordPress site URL above to generate previews and enable migration.
+            </AlertDescription>
+          </Alert>
         )}
+      </div>
 
+      {/* Bottom Section - Preview (Full Width) */}
+      <div className="w-full">
+        {/* Preview Window */}
+        <div className="border rounded-lg overflow-hidden shadow-lg bg-background w-full">
+          <div className="bg-muted border-b px-4 py-2 flex items-center text-xs">
+            <div className="flex space-x-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/90"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/90"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500/90"></div>
+            </div>
+            <div className="flex-1 text-center font-medium text-muted-foreground truncate px-4">
+              {Object.values(previewResults)[0]?.title 
+                ? `Preview: ${Object.values(previewResults)[0]?.title}` 
+                : "WP Offramp Preview"
+              }
+            </div>
+            <div className="w-10"></div>
+          </div>
+          <div className="min-h-[800px] overflow-hidden relative w-full">
+            {renderPreviewArea()}
+          </div>
+        </div>
+      </div>
+
+      {/* Add CSSDebugger in development mode */}
+      {process.env.NODE_ENV === 'development' && <CSSDebugger />}
     </div>
   );
 }
