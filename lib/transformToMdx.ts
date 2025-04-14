@@ -14,6 +14,7 @@ const openai = new OpenAI({
 
 export interface MdxOutput {
   mdx: string; // The full MDX string including frontmatter
+  mdxBody: string; // The MDX content *without* the frontmatter
   frontmatter: {
     title: string;
     date: string;
@@ -33,11 +34,37 @@ interface TransformToMdxArgs {
   featuredImage?: string;
 }
 
-// Basic YAML frontmatter parser (adjust if more complex parsing is needed)
-function parseFrontmatter(mdxContent: string): Record<string, any> {
+// Helper Function: Removes potential code fence wrappers (mdx, yaml, etc.)
+function removeCodeFenceWrapper(content: string): string {
+    // Matches ``` followed by optional language specifier, newline, content, newline, ```
+    const wrapperRegex = /^```(?:\w+)?\s*\n([\s\S]*?)\n```$/m;
+    const match = content.trim().match(wrapperRegex);
+    if (match && match[1]) {
+        // Return only the content inside the wrapper
+        return match[1].trim();
+    }
+    // Also check if it's just ``` at start/end without language
+     const simpleWrapperRegex = /^```\s*\n([\s\S]*?)\n```$/m;
+     const simpleMatch = content.trim().match(simpleWrapperRegex);
+     if (simpleMatch && simpleMatch[1]) {
+        return simpleMatch[1].trim();
+     }
+
+    // Handle cases where the LLM might just put ``` at the very start/end
+    return content
+        .replace(/^```(\w+)?\s*/, '') // Remove starting ``` optionally followed by lang
+        .replace(/```\s*$/, '')      // Remove ending ```
+        .trim();
+}
+
+// UPDATED: Parses frontmatter after removing potential wrappers
+function parseFrontmatter(fullContent: string): Record<string, any> {
+  const cleanedContent = removeCodeFenceWrapper(fullContent); // Clean wrappers first
   const frontmatterRegex = /^---\s*([\s\S]*?)\s*---/;
-  const match = mdxContent.match(frontmatterRegex);
+  const match = cleanedContent.match(frontmatterRegex);
+
   if (!match || !match[1]) {
+    console.warn("Could not parse frontmatter from cleaned MDX content.");
     return {};
   }
 
@@ -46,17 +73,26 @@ function parseFrontmatter(mdxContent: string): Record<string, any> {
   const lines = yamlString.split('\n');
 
   lines.forEach((line) => {
-    const parts = line.split(': ');
-    if (parts.length >= 2) {
-      const key = parts[0].trim();
-      // Join remaining parts in case value contains ':' and remove quotes
-      const value = parts.slice(1).join(': ').trim().replace(/^['"]|['"]$/g, '');
+    const separatorIndex = line.indexOf(':');
+    if (separatorIndex > 0) { // Ensure ':' exists and is not the first char
+      const key = line.substring(0, separatorIndex).trim();
+      // Get value after the first ':' and remove quotes
+      const value = line.substring(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, '');
       if (key) {
         frontmatter[key] = value;
       }
     }
   });
   return frontmatter;
+}
+
+
+// UPDATED: Extracts body content after removing potential wrappers and frontmatter
+function extractMdxBody(fullContent: string): string {
+    const cleanedContent = removeCodeFenceWrapper(fullContent); // Clean wrappers first
+    const frontmatterRegex = /^---[\s\S]*?---/;
+    // Remove frontmatter from the cleaned content
+    return cleanedContent.replace(frontmatterRegex, '').trim();
 }
 
 export async function transformToMdx({
@@ -76,43 +112,30 @@ export async function transformToMdx({
     featuredImage,
   });
 
-  // console.log('----- LLM Prompt -----'); // Debug
-  // console.log(prompt);                  // Debug
-  // console.log('----------------------'); // Debug
-
   try {
     const completion = await openai.chat.completions.create({
-      // Consider using gpt-4-turbo for better HTML understanding if needed, but gpt-3.5 is faster/cheaper
-      model: 'gpt-4o-mini', // Or 'gpt-4-turbo', 'gpt-3.5-turbo'
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
           content:
-            'You are an expert assistant specializing in converting HTML to clean, structured MDX with YAML frontmatter, following specific guidelines.',
+            'You are an expert assistant specializing in converting HTML to clean, structured MDX with YAML frontmatter, following specific guidelines. Output ONLY the MDX content starting directly with the YAML frontmatter block (`---`). Do NOT wrap the output in markdown code fences like ```mdx or ```yaml.',
         },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.2, // Lower temperature for more deterministic output
-      max_tokens: 3000, // Adjust based on expected content length
+      temperature: 0.2,
+      max_tokens: 3500, // Slightly increased
     });
 
     const rawMdx = completion.choices[0]?.message?.content?.trim() ?? '';
 
     if (!rawMdx) {
       console.error('LLM returned empty content.');
-      return {
-        error: 'Content transformation failed: LLM returned empty content.',
-        mdx: '',
-        frontmatter: { title, date, author, featuredImage }, // Return original metadata on error
-        llmResponse: '(empty)',
-      };
+      // Return structure indicating error
+      return { error: 'Content transformation failed: LLM returned empty content.', mdx: '', mdxBody: '', frontmatter: { title, date, author, featuredImage }, llmResponse: '(empty)' };
     }
 
-    // console.log('----- Raw LLM Output -----'); // Debug
-    // console.log(rawMdx);                     // Debug
-    // console.log('--------------------------'); // Debug
-
-    // Attempt to parse frontmatter from the LLM's output
+    // Parse frontmatter from the raw (potentially wrapped) output
     const parsedFm = parseFrontmatter(rawMdx);
 
     // Validate essential frontmatter fields or use fallbacks
@@ -123,42 +146,49 @@ export async function transformToMdx({
       featuredImage: parsedFm.featuredImage || featuredImage,
     };
 
-    // Basic validation: check if frontmatter seems present
-     if (!rawMdx.startsWith('---')) {
-        console.warn("LLM output doesn't start with frontmatter. Prepending based on input.");
-        // Attempt to reconstruct if LLM failed to generate frontmatter
-        const frontmatterString = `---
+    // Extract body content using the updated function (handles wrappers)
+    let mdxBody = extractMdxBody(rawMdx);
+    let finalMdx = rawMdx; // Start with raw output
+
+     // Check if the cleaned output actually starts with ---
+     const cleanedForCheck = removeCodeFenceWrapper(rawMdx);
+
+    // If parsing failed OR the cleaned content doesn't start with '---', reconstruct
+    if (Object.keys(parsedFm).length === 0 || !cleanedForCheck.startsWith('---')) {
+        console.warn("LLM output issue: Frontmatter missing or incorrectly formatted. Reconstructing.");
+         const frontmatterString = `---
 title: "${finalFrontmatter.title.replace(/"/g, '\\"')}"
 date: "${finalFrontmatter.date}"
 author: "${finalFrontmatter.author.replace(/"/g, '\\"')}"
 ${finalFrontmatter.featuredImage ? `featuredImage: "${finalFrontmatter.featuredImage}"\n` : ''}---
 
 `;
-         return {
-           mdx: frontmatterString + rawMdx, // Prepend reconstructed FM
-           frontmatter: finalFrontmatter,
-           llmResponse: rawMdx, // Keep raw response for debugging
-         };
-      }
+        // The body *is* the cleaned content if we had to reconstruct FM
+        mdxBody = cleanedForCheck;
+        finalMdx = frontmatterString + mdxBody; // Prepend reconstructed FM
+    }
 
+    // Final check for safety: ensure body doesn't start with --- if reconstruction happened incorrectly
+    if (mdxBody.startsWith('---')) {
+        console.warn("Post-processing check: mdxBody unexpectedly started with '---'. Attempting removal.");
+        mdxBody = mdxBody.replace(/^---[\s\S]*?---/, '').trim();
+    }
 
     return {
-      mdx: rawMdx, // Return the full MDX including the frontmatter generated by LLM
+      mdx: finalMdx,
+      mdxBody: mdxBody,
       frontmatter: finalFrontmatter,
-      llmResponse: rawMdx, // Optional: return raw response for debugging
+      llmResponse: rawMdx,
     };
   } catch (error: any) {
     console.error('Error calling LLM API:', error);
     let errorMessage = 'Content transformation failed due to an LLM API error.';
-    if (error.response?.data?.error?.message) {
+     if (error.response?.data?.error?.message) {
         errorMessage += `: ${error.response.data.error.message}`;
-    } else if (error.message) {
+     } else if (error.message) {
          errorMessage += `: ${error.message}`;
-    }
-    return {
-        error: errorMessage,
-        mdx: '',
-        frontmatter: { title, date, author, featuredImage } // Return original metadata on error
-    };
+     }
+    // Return structure indicating error
+    return { error: errorMessage, mdx: '', mdxBody: '', frontmatter: { title, date, author, featuredImage } };
   }
 }
