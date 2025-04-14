@@ -267,7 +267,7 @@ export default function HeroPreview() {
               {isLoading && !activePreviewData ? (renderSkeleton()) :
                !activePreviewData ? (<div className="text-center py-10 text-muted-foreground">{resultsUrl ? (fetchError ? `Error loading preview for ${THEMES[activeTheme].name}.` : `Preview for '${THEMES[activeTheme].name}' not loaded. Click its button.`) : 'Generate preview first.'}</div>) :
                // ** FIXED JSX HERE **
-               (<ActiveLayout mdxContent={activePreviewData.mdx?.replace(/^---[\s\S]*?---/, '').trim() || ""} />)
+               (<ActiveLayout mdxContent={activePreviewData.mdx || ""} />)
               }
             </div>
         </TabsContent>

@@ -46,8 +46,6 @@ export default function Home() {
                   </h1>
                   <p className="text-muted-foreground md:text-lg">
                     Break free from bloat, performance bottlenecks, and endless updates.
-                    <br className="hidden md:inline" />
-                    No plugin chaos. No security holes. Clean, fast, and fully yours.
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
