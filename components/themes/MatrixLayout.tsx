@@ -1,51 +1,164 @@
-// components/themes/MatrixLayout.tsx
+// components/themes/MatrixLayout.tsx (With V2 Image Fix + Debug)
 "use client";
 
 import React from "react";
-import matter from "gray-matter";
+// import matter from "gray-matter"; // Keep commented if parseContentManually is used
 
 interface Props {
   mdxContent: string;
 }
 
+// Helper function to escape strings for use in RegExp constructor
+function escapeRegex(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Keeping the parseContentManually function exactly as provided by the user
+function parseContentManually(mdxContent: string): { content: string; data: Record<string, any> } {
+  // ... (parseContentManually implementation remains unchanged) ...
+  const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
+  const match = mdxContent.match(frontmatterPattern);
+
+  if (!match) {
+    const titleMatch = mdxContent.match(/^#\s+(.*?)(\r?\n|$)/);
+    return {
+      content: mdxContent,
+      data: titleMatch ? { title: titleMatch[1] } : {}
+    };
+  }
+
+  const frontmatterText = match[1];
+  const contentText = match[2];
+  const data: Record<string, any> = {};
+
+  if (!frontmatterText.includes('\n')) {
+    const props = frontmatterText.split(/\s+(?=\w+:)/);
+    props.forEach(prop => {
+      const keyValueMatch = prop.match(/^(\w+):\s*(?:"([^"]*)"|'([^']*)'|([^"\s].*?)(?:\s+#.*)?$)/);
+      if (keyValueMatch) {
+        const key = keyValueMatch[1];
+        const value = keyValueMatch[2] || keyValueMatch[3] || keyValueMatch[4];
+        if (key && value !== undefined) {
+          const cleanValue = value.replace(/\s+#\s+.*$/, '').trim();
+          data[key] = cleanValue;
+        }
+      }
+    });
+  } else {
+    frontmatterText.split(/\r?\n/).forEach(line => {
+      const keyValueMatch = line.match(/^(\w+):\s*(?:"([^"]*)"|'([^']*)'|([^"\s].*))/);
+      if (keyValueMatch) {
+        const key = keyValueMatch[1];
+        const value = keyValueMatch[2] || keyValueMatch[3] || keyValueMatch[4];
+        if (key && value !== undefined) {
+          data[key] = value.trim();
+        }
+      }
+    });
+  }
+
+  if (Object.keys(data).length === 0) {
+    const titleMatch = contentText.match(/^#\s+(.*?)(\r?\n|$)/);
+    if (titleMatch) {
+      data.title = titleMatch[1];
+    }
+  }
+
+  const cleanedContent = contentText.split(/\r?\n/).filter(line => {
+    return !line.match(/^---\s*$/) &&
+           !line.match(/^\s*title:\s+/) &&
+           !line.match(/^\s*date:\s+/) &&
+           !line.match(/^\s*author:\s+/) &&
+           !line.match(/^\s*featuredImage:/i) &&
+           !line.match(/^\s*featuredimage:/i);
+  }).join('\n');
+
+  return { content: cleanedContent, data };
+}
+
+
 export function MatrixLayout({ mdxContent }: Props) {
-  // Use our robust parsing instead of gray-matter directly
-  const { content, data } = parseContentManually(mdxContent);
-  
-  console.log("Matrix Layout metadata:", data);
-  console.log("Matrix Layout content length:", content.length);
-  console.log("Matrix Layout content first 100 chars:", content.substring(0, 100));
+  const { content, data } = parseContentManually(mdxContent); // Use provided function
 
   // ============ CLEAN CONTENT ============
-  // More aggressive cleaning to remove all frontmatter-like text
   const lines = content.split(/\r?\n/);
   const cleanedLines = lines.filter(line => {
-    // Filter out any line that looks like frontmatter
-    return !line.match(/^---\s*$/) && 
-           !line.match(/^\s*title:\s+/) && 
-           !line.match(/^\s*date:\s+/) && 
-           !line.match(/^\s*author:\s+/) && 
+    return !line.match(/^---\s*$/) &&
+           !line.match(/^\s*title:\s+/) &&
+           !line.match(/^\s*date:\s+/) &&
+           !line.match(/^\s*author:\s+/) &&
            !line.match(/^\s*featuredImage:/i) &&
            !line.match(/^\s*featuredimage:/i);
   });
   let cleanedContent = cleanedLines.join('\n');
 
   // ============ REMOVE FIRST HEADING ============
-  // Split content into lines, remove the first heading, then join back
   const headingLines = cleanedContent.split(/\r?\n/);
   let foundHeading = false;
   const filteredLines = headingLines.filter(line => {
-    // Only remove the first H1 heading (starts with single #)
     if (!foundHeading && line.match(/^#\s+/)) {
       foundHeading = true;
-      return false; // Skip this line (the heading)
+      return false;
     }
-    return true; // Keep all other lines
+    return true;
   });
   const processedContent = filteredLines.join('\n');
 
   // Extract featured image from metadata if available
   const featuredImage = data.featuredImage || data.featuredimage || '';
+
+
+  // --- CORRECTED FIX V2: Use BASE URL for matching Markdown ---
+  let finalContentForHtml = processedContent;
+  let baseUrlUsedForRegex: string | null = null; // For logging
+  if (featuredImage) {
+    const baseUrl = featuredImage.split('?')[0].split('#')[0];
+    baseUrlUsedForRegex = baseUrl;
+
+    const markdownImgRegex = new RegExp(
+        `!\\[[^\\]]*\\]\\(\\s*${escapeRegex(baseUrl)}\\s*\\)`,
+        'gi'
+    );
+
+    const match = finalContentForHtml.match(markdownImgRegex);
+    if (match) {
+        console.log(`MatrixLayout: Found duplicate featured image MARKDOWN (using base URL: ${baseUrl}). Removing.`); // Updated log
+        finalContentForHtml = finalContentForHtml.replace(markdownImgRegex, '');
+        // Optional: Clean up potentially empty lines
+        // finalContentForHtml = finalContentForHtml.replace(/^\s*$/gm, '');
+    } else {
+         // console.log(`MatrixLayout: Did not find Markdown image link using base URL ${baseUrl}.`); // Updated log
+    }
+  }
+  // --- End CORRECTED FIX V2 ---
+
+
+  // --- Debug Block ---
+  console.log("--- DEBUG START (MatrixLayout) ---"); // Updated log
+  console.log("Featured Image URL (from data):", featuredImage);
+  console.log("Base URL used for Match:", baseUrlUsedForRegex || "(N/A)");
+  console.log("processedContent (start):", processedContent.substring(0, 500) + "...");
+
+  if (featuredImage && baseUrlUsedForRegex) {
+      const markdownImgRegexDebug = new RegExp(
+          `!\\[[^\\]]*\\]\\(\\s*${escapeRegex(baseUrlUsedForRegex)}\\s*\\)`,
+          'gi'
+      );
+      console.log("Markdown Regex Used:", markdownImgRegexDebug.source);
+      const matchFoundDebug = markdownImgRegexDebug.test(processedContent);
+      console.log("Markdown Regex Match Found in processedContent:", matchFoundDebug);
+      if (!matchFoundDebug) {
+          console.log("POSSIBLE ISSUE: Markdown Regex (using base URL) did not find the image link in processedContent.");
+      }
+  } else if (featuredImage) {
+       console.log("Could not generate base URL for regex test.");
+  } else {
+       console.log("No featuredImage URL found in metadata.");
+  }
+  console.log("finalContentForHtml (start):", finalContentForHtml.substring(0, 500) + "...");
+  console.log("--- DEBUG END (MatrixLayout) ---"); // Updated log
+  // --- End Debug Block ---
+
 
   return (
     <div className="bg-black p-4 md:p-6 rounded-b-md w-full">
@@ -76,14 +189,15 @@ export function MatrixLayout({ mdxContent }: Props) {
       {/* Display the featured image if available */}
       {featuredImage && (
         <div className="mb-6">
-          <img 
-            src={featuredImage} 
-            alt={data.title || "Featured image"} 
+          <img
+            src={featuredImage}
+            alt={data.title || "Featured image"}
             className="w-full max-h-96 object-cover border border-green-800"
           />
         </div>
       )}
 
+      {/* Styles kept as provided */}
       <style jsx global>{`
         .matrix-content {
           color: #86efac;
@@ -91,7 +205,8 @@ export function MatrixLayout({ mdxContent }: Props) {
           width: 100%;
           max-width: 100%;
         }
-        .matrix-content h1,
+        /* ... other matrix styles ... */
+         .matrix-content h1,
         .matrix-content h2,
         .matrix-content h3,
         .matrix-content h4,
@@ -191,10 +306,11 @@ export function MatrixLayout({ mdxContent }: Props) {
         }
       `}</style>
 
+      {/* Use finalContentForHtml */}
       <div
-        className="prose prose-invert max-w-none w-full matrix-content"
+        className="prose prose-invert max-w-none w-full matrix-content" // Added prose-invert for dark bg
         dangerouslySetInnerHTML={{
-          __html: processedContent
+          __html: finalContentForHtml // Use the corrected content
             .replace(
               /^# (.*$)/gm,
               '<h1 style="color: #4ade80; font-family: monospace; font-weight: 700;">$1</h1>'
@@ -207,7 +323,7 @@ export function MatrixLayout({ mdxContent }: Props) {
               /^### (.*$)/gm,
               '<h3 style="color: #4ade80; font-family: monospace; font-weight: 700;">$1</h3>'
             )
-            // Improved image handling with better regex
+            // This replace now only affects non-featured images
             .replace(
               /!\[(.*?)\]\((.*?)(?:\s+"(.*?)")?\)/g,
               '<img src="$2" alt="$1" title="$3" style="max-width: 100%; display: block; margin: 1.5rem 0; border: 1px solid #166534;" />'
@@ -234,87 +350,4 @@ export function MatrixLayout({ mdxContent }: Props) {
       />
     </div>
   );
-}
-
-/**
- * Parse content manually without relying on gray-matter
- * This avoids any YAML parsing errors completely
- */
-function parseContentManually(mdxContent: string): { content: string; data: Record<string, any> } {
-  // Check if the content has frontmatter delimiters
-  const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
-  const match = mdxContent.match(frontmatterPattern);
-  
-  if (!match) {
-    // No frontmatter found, look for a title in the first heading
-    const titleMatch = mdxContent.match(/^#\s+(.*?)(\r?\n|$)/);
-    return {
-      content: mdxContent,
-      data: titleMatch ? { title: titleMatch[1] } : {}
-    };
-  }
-  
-  // Extract frontmatter and content
-  const frontmatterText = match[1];
-  const contentText = match[2];
-  
-  // Parse frontmatter using a custom approach
-  const data: Record<string, any> = {};
-  
-  // Split the frontmatter into lines first
-  // If it's all on one line, we'll handle that specially
-  if (!frontmatterText.includes('\n')) {
-    // The frontmatter is all on one line - split by properties
-    const props = frontmatterText.split(/\s+(?=\w+:)/);
-    
-    props.forEach(prop => {
-      // For each property, extract the key and value
-      const keyValueMatch = prop.match(/^(\w+):\s*(?:"([^"]*)"|'([^']*)'|([^"\s].*?)(?:\s+#.*)?$)/);
-      if (keyValueMatch) {
-        const key = keyValueMatch[1];
-        // Use the first non-undefined value
-        const value = keyValueMatch[2] || keyValueMatch[3] || keyValueMatch[4];
-        if (key && value !== undefined) {
-          // Remove any trailing markdown headings from the value
-          const cleanValue = value.replace(/\s+#\s+.*$/, '').trim();
-          data[key] = cleanValue;
-        }
-      }
-    });
-  } else {
-    // Regular multi-line frontmatter
-    frontmatterText.split(/\r?\n/).forEach(line => {
-      // For each line, extract the key and value if it's a proper key-value pair
-      const keyValueMatch = line.match(/^(\w+):\s*(?:"([^"]*)"|'([^']*)'|([^"\s].*))/);
-      if (keyValueMatch) {
-        const key = keyValueMatch[1];
-        // Use the first non-undefined value
-        const value = keyValueMatch[2] || keyValueMatch[3] || keyValueMatch[4];
-        if (key && value !== undefined) {
-          data[key] = value.trim();
-        }
-      }
-    });
-  }
-  
-  // If we have an empty object, try to find a title in the first heading
-  if (Object.keys(data).length === 0) {
-    const titleMatch = contentText.match(/^#\s+(.*?)(\r?\n|$)/);
-    if (titleMatch) {
-      data.title = titleMatch[1];
-    }
-  }
-  
-  // Apply a better strategy to remove frontmatter from content
-  const cleanedContent = contentText.split(/\r?\n/).filter(line => {
-    // Keep all lines EXCEPT those that look like frontmatter
-    return !line.match(/^---\s*$/) && 
-           !line.match(/^\s*title:\s+/) && 
-           !line.match(/^\s*date:\s+/) && 
-           !line.match(/^\s*author:\s+/) && 
-           !line.match(/^\s*featuredImage:/i) &&
-           !line.match(/^\s*featuredimage:/i);
-  }).join('\n');
-  
-  return { content: cleanedContent, data };
 }

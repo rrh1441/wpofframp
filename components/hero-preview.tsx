@@ -1,4 +1,4 @@
-// components/hero-preview.tsx
+// components/hero-preview.tsx (Refactored for Client-Side Orchestration)
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
@@ -8,10 +8,11 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Loader2, AlertCircle } from "lucide-react";
+import { Download, Loader2, AlertCircle, AlertTriangle } from "lucide-react"; // Added AlertTriangle
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { THEMES, ThemeKey } from "@/lib/constants";
+// Assuming PreviewResult is correctly defined in the API route file based on the last provided version
 import type { PreviewResult } from "@/app/api/preview/route";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +22,7 @@ import { DrudgeLayout } from './themes/DrudgeLayout';
 import { MatrixLayout } from './themes/MatrixLayout';
 import { GhibliLayout } from './themes/GhibliLayout';
 
-const themeKeys = ['modern', 'drudge', 'matrix', 'ghibli'] as ThemeKey[];
+const themeKeys = ['modern', 'matrix','drudge', 'ghibli'] as ThemeKey[];
 
 const themeLayoutMap: Record<ThemeKey, React.FC<{ mdxContent: string }>> = {
     modern: ModernLayout,
@@ -63,118 +64,181 @@ const themeButtonStyles: Record<ThemeKey, string> = {
 export default function HeroPreview() {
   const [url, setUrl] = useState("");
   const [activeTheme, setActiveTheme] = useState<ThemeKey>("modern");
+  // isLoading now represents the *batch* loading state
   const [isLoading, setIsLoading] = useState(false);
   const [previewResults, setPreviewResults] = useState<{ [key in ThemeKey]?: PreviewResult }>({});
+  // fetchError stores the *first* error encountered during batch fetch or single fallback fetch
   const [fetchError, setFetchError] = useState<string | null>(null);
+  // Stores which themes specifically failed during the last batch load
+  const [failedThemes, setFailedThemes] = useState<Set<ThemeKey>>(new Set());
+
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<string>("migrated");
-  const [resultsUrl, setResultsUrl] = useState<string | null>(null);
+  const [resultsUrl, setResultsUrl] = useState<string | null>(null); // URL for which previews are held
 
+  // Effect to clear results if input URL changes significantly
   useEffect(() => {
     const handler = setTimeout(() => {
         const normalizedInputUrl = url ? normalizeUrl(url) : "";
         if ((normalizedInputUrl && resultsUrl && normalizedInputUrl !== resultsUrl) || (url === "" && resultsUrl !== null)) {
-            setPreviewResults({}); setFetchError(null); setMigrationError(null); setResultsUrl(null);
+            setPreviewResults({});
+            setFetchError(null);
+            setMigrationError(null);
+            setResultsUrl(null);
+            setFailedThemes(new Set()); // Clear failed themes as well
         }
     }, 300);
     return () => clearTimeout(handler);
   }, [url, resultsUrl]);
 
+  // Helper: Fetches preview for a single theme, returns data or throws error
+  const fetchSingleThemePreview = async (targetUrl: string, themeKey: ThemeKey): Promise<PreviewResult> => {
+      const response = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wpUrl: targetUrl, theme: themeKey }),
+      });
+      const responseBody = await response.json();
+      if (!response.ok) {
+        // Throw error with message from API if possible
+        throw new Error(responseBody.error || `HTTP error fetching ${themeKey}! Status: ${response.status}`);
+      }
+      return responseBody as PreviewResult;
+  }
 
-  const loadPreviewForTheme = useCallback(async (themeToLoad: ThemeKey, targetUrl: string) => {
+  // New Orchestration Function: Fetches all theme previews concurrently
+  const fetchAllThemePreviews = useCallback(async (targetUrl: string) => {
     const normalizedTargetUrl = normalizeUrl(targetUrl);
+    console.log(`[API Batch] Fetching all previews for URL: ${normalizedTargetUrl}`);
 
-    if (resultsUrl === normalizedTargetUrl && previewResults[themeToLoad]) {
-        console.log(`[Cache] Using cached data for theme: ${themeToLoad} and URL: ${normalizedTargetUrl}`);
-        if (activeTheme !== themeToLoad) setActiveTheme(themeToLoad);
-        if (currentTab !== "migrated") setCurrentTab("migrated");
-        return;
-    }
-
-    console.log(`[API Call] Fetching preview for URL: ${normalizedTargetUrl} with theme: ${themeToLoad}`);
     setIsLoading(true);
     setFetchError(null);
     setMigrationError(null);
+    setFailedThemes(new Set()); // Clear previous failures
 
+    // Clear results only if the target URL is truly different
     if (resultsUrl !== normalizedTargetUrl) {
-        console.log(`[Cache] Fetching for new URL ('${normalizedTargetUrl}' != '${resultsUrl}'). Clearing ALL cached results.`);
+        console.log(`[Cache] Clearing results for new URL ('${normalizedTargetUrl}' != '${resultsUrl}')`);
         setPreviewResults({});
-        setResultsUrl(normalizedTargetUrl);
-    } else {
-         if(!resultsUrl) setResultsUrl(normalizedTargetUrl);
     }
+    setResultsUrl(normalizedTargetUrl); // Set the URL we are fetching for
 
-    try {
-      const response = await fetch("/api/preview", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wpUrl: normalizedTargetUrl, theme: themeToLoad }),
-      });
-      const responseBody = await response.json();
-      if (!response.ok) throw new Error(responseBody.error || `HTTP error! Status: ${response.status}`);
+    // Create fetch promises for all themes
+    const promises = themeKeys.map(themeKey =>
+      fetchSingleThemePreview(normalizedTargetUrl, themeKey)
+        .then(data => ({ theme: themeKey, status: 'fulfilled', value: data })) // Wrap result
+        .catch(error => ({ theme: themeKey, status: 'rejected', reason: error })) // Wrap error
+    );
 
-      console.log(`[API Call] Success for theme: ${themeToLoad}. Caching result for URL: ${normalizedTargetUrl}`);
-      setPreviewResults(prev => ({ ...prev, [themeToLoad]: responseBody as PreviewResult }));
-      setActiveTheme(themeToLoad);
-      setCurrentTab("migrated");
+    const results = await Promise.all(promises); // Wait for all fetches
 
-    } catch (error: any) {
-      console.error("[API Call] Fetch failed:", error);
-      const errorMsg = `Preview generation failed: ${error.message || "Unknown error"}`;
-      setFetchError(errorMsg);
+    // Process results
+    const newResults: { [key in ThemeKey]?: PreviewResult } = {};
+    const currentFailedThemes = new Set<ThemeKey>();
+    let firstError: string | null = null;
+    let firstSuccessfulTheme: ThemeKey | null = null;
 
-      setPreviewResults(prev => ({ ...prev, [themeToLoad]: undefined }));
-
-      const otherResultsExist = Object.values(previewResults).some(
-          (value, index) => themeKeys[index] !== themeToLoad && value !== undefined
-      );
-
-      if (resultsUrl === normalizedTargetUrl && !otherResultsExist) {
-           console.warn(`Clearing resultsUrl as fetch failed for ${themeToLoad} and no other valid results exist for ${normalizedTargetUrl}`);
-           setResultsUrl(null);
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        newResults[result.theme] = result.value;
+        if (!firstSuccessfulTheme) {
+             firstSuccessfulTheme = result.theme; // Track first success
+        }
+      } else { // status === 'rejected'
+        console.error(`[API Batch] Fetch failed for theme ${result.theme}:`, result.reason);
+        currentFailedThemes.add(result.theme);
+        if (!firstError) {
+            // Store the first error encountered for general display
+            firstError = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        }
       }
+    });
 
-    } finally {
-      setIsLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewResults, resultsUrl, activeTheme, currentTab]);
+    // Update state once after processing all results
+    setPreviewResults(newResults);
+    setFailedThemes(currentFailedThemes);
+    setFetchError(firstError); // Set the first error message, if any
+
+    // Set active theme to 'modern' if it loaded, otherwise first successful, else default 'modern'
+    setActiveTheme(newResults.modern ? 'modern' : firstSuccessfulTheme || 'modern');
+    setCurrentTab('migrated');
+    setIsLoading(false);
+
+    console.log(`[API Batch] Finished. Loaded: ${Object.keys(newResults).length}, Failed: ${currentFailedThemes.size}`);
+
+  }, [resultsUrl]); // Dependency: resultsUrl to compare before clearing
 
 
+  // Trigger for "Generate Previews" button -> calls batch fetch
   const handleInitialPreview = () => {
      if (!url) { setFetchError("Please enter a WordPress URL."); return; }
      const targetUrl = normalizeUrl(url);
-     console.log(`[UI Action] Generate Previews clicked for input URL: ${url} (Target: ${targetUrl}) with selected theme: ${activeTheme}`);
-     loadPreviewForTheme(activeTheme, targetUrl);
+     console.log(`[UI Action] Generate Previews clicked for input URL: ${url} (Target: ${targetUrl})`);
+     fetchAllThemePreviews(targetUrl); // Call the batch fetch function
    };
 
+   // Trigger for Example buttons -> calls batch fetch
    const handleExampleClick = useCallback((exampleUrl: string) => {
      if (isLoading || isMigrating) return;
-
      const normalizedExampleUrl = normalizeUrl(exampleUrl);
      console.log(`[UI Action] Example button clicked: ${normalizedExampleUrl}`);
-
-     setUrl(normalizedExampleUrl);
-
-     loadPreviewForTheme(activeTheme, normalizedExampleUrl);
-   }, [isLoading, isMigrating, activeTheme, loadPreviewForTheme]);
+     setUrl(normalizedExampleUrl); // Update input field
+     fetchAllThemePreviews(normalizedExampleUrl); // Call the batch fetch function
+   }, [isLoading, isMigrating, fetchAllThemePreviews]); // Use fetchAllThemePreviews
 
 
-  const handleThemeSelectionChange = (newTheme: ThemeKey) => {
+  // Updated Theme Switching: Instant if data exists, fallback fetch if missing
+  const handleThemeSelectionChange = useCallback(async (newTheme: ThemeKey) => {
     if (isLoading || isMigrating || newTheme === activeTheme) return;
 
-    setActiveTheme(newTheme);
-
-    if (resultsUrl) {
-         console.log(`[UI Action] Theme selection changed to ${newTheme}. Loading preview for existing resultsUrl: ${resultsUrl}`);
-         loadPreviewForTheme(newTheme, resultsUrl);
+    // If data already exists for this theme (from batch load) -> Just switch active theme
+    if (previewResults[newTheme]) {
+      console.log(`[UI Action] Switching to pre-loaded theme: ${newTheme}`);
+      setActiveTheme(newTheme);
+      return;
     }
-  };
+
+    // If data DOES NOT exist (likely failed during batch) -> Try fetching just this one theme
+    if (resultsUrl && failedThemes.has(newTheme)) {
+        console.log(`[UI Action] Data for theme ${newTheme} missing. Attempting fallback fetch for URL: ${resultsUrl}`);
+        setIsLoading(true); // Indicate loading specifically for this fallback
+        setFetchError(null); // Clear previous general errors
+
+        try {
+            const resultData = await fetchSingleThemePreview(resultsUrl, newTheme);
+            console.log(`[API Fallback] Success for theme: ${newTheme}.`);
+            setPreviewResults(prev => ({ ...prev, [newTheme]: resultData })); // Add the fetched data
+            setFailedThemes(prev => { // Remove from failed set
+                const updated = new Set(prev);
+                updated.delete(newTheme);
+                return updated;
+            });
+            setActiveTheme(newTheme); // Set as active
+            setFetchError(null);
+        } catch (error: any) {
+            console.error(`[API Fallback] Fetch failed for theme ${newTheme}:`, error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            setFetchError(`Failed to load theme '${THEMES[newTheme].name}': ${errorMsg}`);
+            // Keep it in failedThemes set
+        } finally {
+            setIsLoading(false); // Finish loading indicator
+        }
+    } else if (resultsUrl) {
+         // This case shouldn't happen often if batch fetch logic is correct
+         console.warn(`Theme data for ${newTheme} not found, and it wasn't marked as failed. Cannot fetch.`);
+         setFetchError(`Preview data for theme '${THEMES[newTheme].name}' is unavailable.`);
+    } else {
+         // Cannot fetch fallback if we don't even have a resultsUrl
+         console.warn(`Cannot fetch fallback for ${newTheme} as no resultsUrl is set.`);
+    }
+  }, [isLoading, isMigrating, activeTheme, previewResults, resultsUrl, failedThemes]); // Dependencies
 
 
+  // Migration Handler (no changes needed, checks activeTheme data)
   const handleMigrate = async () => {
       if (!resultsUrl || !activeTheme || !previewResults[activeTheme]) {
-        setMigrationError("Cannot migrate. Please generate a valid preview for the active theme first."); return;
+        setMigrationError("Cannot migrate. Please ensure the preview for the active theme has loaded successfully."); return;
       }
       console.log(`[Migrate] Starting migration for ${resultsUrl} with theme ${activeTheme}`);
       setIsMigrating(true); setMigrationError(null); setFetchError(null);
@@ -218,55 +282,81 @@ export default function HeroPreview() {
   const renderSkeleton = () => ( <div className="p-6 space-y-4 animate-pulse"> <Skeleton className="h-8 w-3/4" /> <Skeleton className="h-4 w-1/2" /> <Skeleton className="h-40 w-full" /> <Skeleton className="h-4 w-full mt-4" /> <Skeleton className="h-4 w-full" /> <Skeleton className="h-4 w-5/6" /> </div> );
 
   const renderPreviewArea = () => {
-    const firstResult = Object.values(previewResults).find(r => r !== undefined);
-    const ActiveLayout = themeLayoutMap[activeTheme];
+    // Check if *any* preview data exists for the current resultsUrl
+    const hasAnyPreviewData = resultsUrl && Object.keys(previewResults).length > 0;
+    // Get data for the currently *active* theme
     const activePreviewData = previewResults[activeTheme];
+    // Get the first loaded result for the original HTML tab (fallback)
+    const firstLoadedResult = hasAnyPreviewData ? Object.values(previewResults).find(r => r !== undefined) : undefined;
+    const ActiveLayout = themeLayoutMap[activeTheme];
 
+    // --- Determine Placeholder/Initial State ---
     if (!url && !isLoading && !resultsUrl) {
         return (<div className="flex items-center justify-center h-full min-h-[400px] bg-gray-50/50 rounded"><div className="text-center p-6"><Image src="/placeholder.svg" width={400} height={200} alt="WP Offramp Placeholder" className="mx-auto mb-4 rounded border opacity-50" priority /><p className="text-muted-foreground">Enter URL & Select Theme above.</p></div></div>);
     }
     if (url && !isLoading && !resultsUrl && !fetchError) {
         return (<div className="flex items-center justify-center h-full min-h-[400px] bg-gray-50/50 rounded"><div className="text-center p-6"><p className="text-lg font-medium text-muted-foreground">Click "Generate Previews" or try an example.</p></div></div>);
     }
+     // State 3: Error occurred during the *very first* attempt to load (no resultsUrl established)
     if (fetchError && !isLoading && !resultsUrl) {
          return (<div className="p-4 md:p-6"><Alert variant="destructive" className="m-4"><AlertCircle className="h-4 w-4" /> <AlertTitle>Preview Error</AlertTitle><AlertDescription>{fetchError}</AlertDescription></Alert></div>);
     }
-    if (isLoading && !resultsUrl) {
+    // State 4: Currently loading the *initial* batch (no resultsUrl yet)
+    if (isLoading && !resultsUrl) { // This condition might be brief now
         return renderSkeleton();
     }
+     // State 5: Actively loading the batch *after* resultsUrl is set
+    if (isLoading && resultsUrl) {
+         return renderSkeleton(); // Show skeleton during batch load too
+     }
+    // State 6: Fallback if resultsUrl got cleared somehow or loading finished with no results
     if (!resultsUrl && !isLoading && !fetchError) {
          return <div className="p-6 text-center text-muted-foreground">Enter URL and generate preview.</div>;
     }
 
+    // --- Render Tabs (We have resultsUrl, loading is finished) ---
     return (
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="h-full flex flex-col">
         <div className="border-b px-4 sm:px-6 py-2 flex flex-wrap items-center gap-x-4 gap-y-2 justify-between min-h-[50px]">
             <TabsList className="grid w-full sm:w-auto grid-cols-2">
-                <TabsTrigger value="original" disabled={!firstResult}>Original HTML</TabsTrigger>
+                {/* Disable Original tab if no preview data loaded at all */}
+                <TabsTrigger value="original" disabled={!hasAnyPreviewData}>Original HTML</TabsTrigger>
+                {/* Disable Preview tab if data for the *active* theme is missing */}
                 <TabsTrigger value="migrated" disabled={!activePreviewData}>Preview Theme</TabsTrigger>
             </TabsList>
-            <div className="flex items-center text-sm text-muted-foreground h-5">
-                {isLoading && resultsUrl && <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Preview...</>}
-            </div>
-            {fetchError && !isLoading && resultsUrl && (<div className="w-full sm:w-auto text-xs text-red-600 flex items-center gap-1 pt-1 sm:pt-0"><AlertCircle className="h-3 w-3" /> Error loading preview.</div>)}
+            {/* Keep loading indicator here? It might be confusing if only fallback fetch is happening */}
+            {/* <div className="flex items-center text-sm text-muted-foreground h-5">
+                {isLoading && <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading...</>}
+            </div> */}
+            {/* Show fetch error if one occurred during batch or fallback */}
+            {fetchError && !isLoading && (<div className="w-full sm:w-auto text-xs text-red-600 flex items-center gap-1 pt-1 sm:pt-0"><AlertTriangle className="h-3 w-3" /> {fetchError}</div>)}
         </div>
 
+        {/* Original HTML Tab - Uses first available result */}
         <TabsContent value="original" className="p-4 md:p-6 overflow-auto border-t sm:border-t-0 rounded-b-md flex-grow bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {isLoading && resultsUrl && !firstResult ? renderSkeleton() :
-           !firstResult ? <div className="text-muted-foreground p-4">Original content could not be loaded.</div> : (
+           {!firstLoadedResult ? <div className="text-muted-foreground p-4">Original content could not be loaded.</div> : (
               <>
-                <h2 className="text-xl font-semibold border-b pb-2 mb-4">{firstResult.title || 'Original Content'}</h2>
-                 {firstResult.author && firstResult.date && (<div className="text-xs text-muted-foreground mb-4">By {firstResult.author} on {new Date(firstResult.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>)}
-                 <div className="prose prose-sm sm:prose max-w-none" dangerouslySetInnerHTML={{ __html: firstResult.originalHtml || "<p>Original content not available.</p>" }}/>
+                <h2 className="text-xl font-semibold border-b pb-2 mb-4">{firstLoadedResult.title || 'Original Content'}</h2>
+                 {firstLoadedResult.author && firstLoadedResult.date && (<div className="text-xs text-muted-foreground mb-4">By {firstLoadedResult.author} on {new Date(firstLoadedResult.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>)}
+                 <div className="prose prose-sm sm:prose max-w-none" dangerouslySetInnerHTML={{ __html: firstLoadedResult.originalHtml || "<p>Original content not available.</p>" }}/>
               </>
           )}
         </TabsContent>
 
+        {/* Migrated MDX Tab (Preview) - Uses active theme's data */}
         <TabsContent value="migrated" className="p-4 md:p-6 overflow-auto border-t sm:border-t-0 rounded-b-md flex-grow bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <div className="min-h-[300px] relative">
-              {isLoading && resultsUrl && !activePreviewData ? renderSkeleton() :
-               !activePreviewData ? (<div className="text-center py-10 text-muted-foreground">{fetchError ? `Error loading preview for ${THEMES[activeTheme].name}. Select another theme.` : `Preview for '${THEMES[activeTheme].name}' not loaded. Select its button above.`}</div>) :
-               (<ActiveLayout mdxContent={activePreviewData.mdx || ""} />)
+              {!activePreviewData ? (
+                  <div className="text-center py-10 text-muted-foreground">
+                      {failedThemes.has(activeTheme)
+                          ? `Preview for '${THEMES[activeTheme].name}' failed to load. Try selecting it again.`
+                          : `Preview data for '${THEMES[activeTheme].name}' is unavailable.`
+                      }
+                 </div>
+                ) : (
+                 // Render the active theme layout with its specific MDX content
+                 <ActiveLayout mdxContent={activePreviewData.mdx || ""} />
+               )
               }
             </div>
         </TabsContent>
@@ -299,10 +389,8 @@ export default function HeroPreview() {
                 />
             </div>
 
-             {/* Added: Example Site Buttons Section - Moved Here */}
-              {/* Removed: Outer div and border-t */}
-              {/* Removed: Label "Or try an example:" */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2"> {/* Added mt-2 for spacing */}
+             {/* Example Site Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                 {exampleSites.map((site) => (
                   <Button
                     key={site.name}
@@ -312,7 +400,8 @@ export default function HeroPreview() {
                     disabled={isLoading || isMigrating}
                     className="font-normal justify-center text-center h-9"
                   >
-                     {isLoading && normalizeUrl(url) === normalizeUrl(site.url) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                     {/* Show loader only if loading is true *and* the current url matches this example */}
+                     {isLoading && resultsUrl === normalizeUrl(site.url) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                      {site.name}
                   </Button>
                 ))}
@@ -322,32 +411,48 @@ export default function HeroPreview() {
             <div>
                 <Label className="pb-2 block text-sm font-medium">Select Preview Theme</Label>
                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {themeKeys.map((themeId) => (
-                      <Button
-                        key={`select-${themeId}`}
-                        variant={'outline'}
-                        size="default"
-                        onClick={() => handleThemeSelectionChange(themeId)}
-                        disabled={isLoading || isMigrating}
-                        className={cn(
-                            "h-10 px-3 justify-center border transition-all duration-150 ease-in-out",
-                            themeButtonStyles[themeId],
-                            activeTheme === themeId ? 'ring-2 ring-offset-2 ring-blue-600 shadow-md scale-105 font-semibold' : 'font-normal opacity-90 hover:opacity-100'
-                        )}
-                      >
-                         {THEMES[themeId].name}
-                      </Button>
-                     ))}
+                    {themeKeys.map((themeId) => {
+                         // Determine if this theme specifically failed to load
+                         const hasFailed = resultsUrl && failedThemes.has(themeId);
+                         // Determine if data for this theme is loaded
+                         const isLoaded = resultsUrl && !!previewResults[themeId];
+                         // Disable if migrating, globally loading, OR if it failed specifically and isn't loaded
+                         const isDisabled = isLoading || isMigrating || (hasFailed && !isLoaded);
+
+                         return (
+                             <Button
+                                key={`select-${themeId}`}
+                                variant={'outline'}
+                                size="default"
+                                onClick={() => handleThemeSelectionChange(themeId)}
+                                disabled={isDisabled}
+                                className={cn(
+                                    "h-10 px-3 justify-center border transition-all duration-150 ease-in-out relative", // Added relative for potential badge/icon
+                                    themeButtonStyles[themeId],
+                                    activeTheme === themeId ? 'ring-2 ring-offset-2 ring-blue-600 shadow-md scale-105 font-semibold' : 'font-normal opacity-90 hover:opacity-100',
+                                    // Style differently if failed
+                                    hasFailed ? 'border-red-500 text-red-600 opacity-70 hover:opacity-80' : '',
+                                    // Generally disabled appearance if no results yet
+                                    !resultsUrl && !isLoading ? 'opacity-60 cursor-not-allowed' : ''
+                                )}
+                                title={hasFailed ? `Loading failed for ${THEMES[themeId].name}. Click to retry.` : `Select ${THEMES[themeId].name} Theme`}
+                             >
+                                 {THEMES[themeId].name}
+                                 {/* Optional: Icon indication for failed themes */}
+                                 {/* {hasFailed && <AlertTriangle className="absolute top-1 right-1 h-3 w-3 text-red-500" />} */}
+                             </Button>
+                         );
+                    })}
                   </div>
             </div>
 
             {/* Generate Button */}
             <Button onClick={handleInitialPreview} disabled={!url || isLoading || isMigrating} className="w-full px-6" size="lg">
-                 {isLoading && !resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generating Initial Preview...</> ) : isLoading && resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading Theme...</> ) : ( resultsUrl && resultsUrl === normalizeUrl(url) ? "Regenerate Previews" : "Generate Previews" )}
+                 {/* Updated Loading Text */}
+                 {isLoading ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading All Previews...</> ) : ( resultsUrl && resultsUrl === normalizeUrl(url) ? "Regenerate All Previews" : "Generate All Previews" )}
             </Button>
-             {fetchError && !resultsUrl && !isLoading && (<p className="text-sm text-red-600 pt-1 text-center">{fetchError}</p>)}
-
-             {/* Example buttons moved above */}
+             {/* Show fetch error only if it happened during initial load */}
+             {fetchError && !isLoading && !resultsUrl && (<p className="text-sm text-red-600 pt-1 text-center">{fetchError}</p>)}
 
           </CardContent>
         </Card>
@@ -368,29 +473,35 @@ export default function HeroPreview() {
         </div>
 
       {/* Migration Card Section */}
-      {resultsUrl && (
+      {/* Show only if we have resultsUrl AND data for the active theme */}
+      {resultsUrl && previewResults[activeTheme] && (
         <div className="w-full">
-            {previewResults[activeTheme] ? (
-                <Card>
-                    <CardHeader className="pb-2">
-                        <h3 className="text-lg font-medium">Migrate & Download</h3>
-                        <p className="text-sm text-muted-foreground"> Generates a complete Next.js project for the <span className="font-medium">{THEMES[activeTheme].name}</span> theme. </p>
-                    </CardHeader>
-                    <CardContent>
-                    {migrationError && ( <Alert variant="destructive" className="mb-4"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Migration Error</AlertTitle> <AlertDescription>{migrationError}</AlertDescription> </Alert> )}
-                    <Button size="lg" onClick={handleMigrate} disabled={isMigrating || isLoading || !previewResults[activeTheme]} className="w-full">
-                        {isMigrating ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Migrating & Zipping...</> ) : ( <><Download className="mr-2 h-4 w-4" />Migrate & Download ZIP ({THEMES[activeTheme]?.name} Theme)</> )}
-                    </Button>
-                    <p className="text-xs text-muted-foreground mt-2 text-center"> Free migration limited to one page per session (per browser, resets hourly). </p>
-                    </CardContent>
-                </Card>
-            ) : (
-                 <div className="text-center text-muted-foreground p-4 border rounded-md bg-muted">Select a theme above to load its preview and enable migration for that style.</div>
-            )}
+           <Card>
+               <CardHeader className="pb-2">
+                   <h3 className="text-lg font-medium">Migrate & Download</h3>
+                   <p className="text-sm text-muted-foreground"> Generates a complete Next.js project for the <span className="font-medium">{THEMES[activeTheme].name}</span> theme. </p>
+               </CardHeader>
+               <CardContent>
+               {migrationError && ( <Alert variant="destructive" className="mb-4"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Migration Error</AlertTitle> <AlertDescription>{migrationError}</AlertDescription> </Alert> )}
+               {/* Disable button if migrating, loading, or active theme data is missing */}
+               <Button size="lg" onClick={handleMigrate} disabled={isMigrating || isLoading || !previewResults[activeTheme]} className="w-full">
+                   {isMigrating ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Migrating & Zipping...</> ) : ( <><Download className="mr-2 h-4 w-4" />Migrate & Download ZIP ({THEMES[activeTheme]?.name} Theme)</> )}
+               </Button>
+               <p className="text-xs text-muted-foreground mt-2 text-center"> Free migration limited to one page per session (per browser, resets hourly). </p>
+               </CardContent>
+           </Card>
         </div>
       )}
+      {/* Show explanation if results loaded but active theme is missing */}
+      {resultsUrl && !previewResults[activeTheme] && !isLoading &&(
+          <div className="text-center text-muted-foreground p-4 border rounded-md bg-muted">
+              {failedThemes.has(activeTheme)
+                  ? `Preview for '${THEMES[activeTheme].name}' failed to load initially. Click its button above to retry.`
+                  : `Preview data for '${THEMES[activeTheme].name}' is unavailable. Select another theme.`
+              }
+          </div>
+      )}
 
-       {/* Removed: Final Info Alert Card */}
 
     </div>
   );

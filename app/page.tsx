@@ -10,7 +10,7 @@ import HeroPreview from "@/components/hero-preview";
 import { THEMES } from "@/lib/constants";
 
 // Define the theme keys we are using (should match hero-preview)
-const themeKeys = ['modern', 'drudge', 'matrix', 'ghibli'];
+const themeKeys = ['modern', 'matrix', 'drudge', 'ghibli'];
 
 // Updated "Who Is It For" card data with two new customer-focused entries
 const whoIsItForData = [
