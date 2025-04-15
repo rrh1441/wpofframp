@@ -219,22 +219,16 @@ export default function Home() {
         </section>
       </main>
 
-      {/* Footer */}
+      {/* Footer - Updated */}
        <footer className="w-full border-t py-6 md:py-0">
-          {/* ... (footer content remains the same) ... */}
-           <div className="container flex flex-col items-center justify-between gap-4 md:h-24 md:flex-row">
+         <div className="container flex flex-col items-center justify-between gap-4 md:h-24 md:flex-row">
            <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
              © {currentYear} WP Offramp. All rights reserved.
            </p>
+           {/* Updated: Removed Terms/Privacy, Contact is mailto */}
            <div className="flex items-center gap-2 sm:gap-4">
              <Button variant="ghost" size="sm" asChild>
-               <Link href="#">Terms</Link>
-             </Button>
-             <Button variant="ghost" size="sm" asChild>
-               <Link href="#">Privacy</Link>
-             </Button>
-             <Button variant="ghost" size="sm" asChild>
-               <Link href="#">Contact</Link>
+               <a href="mailto:support@simpleappsgroup.com">Contact</a>
              </Button>
            </div>
          </div>
