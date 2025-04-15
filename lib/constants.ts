@@ -6,7 +6,7 @@ export const THEMES = {
   modern: { // Renamed from clarity
     name: 'Modern',
     description:
-      'Clean, minimalist design with focus on readability. Perfect for most blogs and articles.',
+      'Clean, minimalist design with focus on readability',
     prompt: `
 Theme: Modern (Clarity)
 
@@ -17,23 +17,9 @@ Theme: Modern (Clarity)
 - Images should be standard Markdown images: ![alt text](url)
 `,
   },
-  drudge: {
-    name: 'Drudge', // Keep description simple if name is descriptive
-    description: 'Retro news feed style with emphasis on headlines.',
-    prompt: `
-Theme: Drudge Report
-
-- Output main headlines (# H1) and subheadlines (## H2, ### H3) in ALL CAPS directly in the text.
-- Use standard Markdown paragraphs for body text. Keep paragraphs relatively short.
-- Convert ALL HTML links (<a> tags) to standard Markdown links: [LINK TEXT](URL). Do NOT use raw HTML for links.
-- Prefer text over images. If an image is essential, use standard Markdown: ![alt text](URL).
-- Use standard Markdown horizontal rules (---) frequently to separate logical items or sections.
-- Mimic a simple, dense news feed structure.
-`,
-  },
   matrix: {
     name: 'Matrix',
-    description: 'Monospaced, code-focused, minimal decoration.',
+    description: 'Monospaced, code-focused, minimal decoration',
     prompt: `
 Theme: Matrix Feed
 
@@ -47,7 +33,7 @@ Theme: Matrix Feed
   },
   ghibli: {
     name: 'Ghibli', // Keep description simple if name is descriptive
-    description: 'Whimsical and soft, like a journal entry.',
+    description: 'Whimsical and soft, like a journal entry',
     prompt: `
 Theme: Ghibli Journal
 
