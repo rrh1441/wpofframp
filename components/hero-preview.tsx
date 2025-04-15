@@ -1,7 +1,4 @@
 // components/hero-preview.tsx
-// No changes required in this file based on the latest request.
-// It remains the same as the previous version.
-
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
@@ -11,7 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Loader2, AlertCircle, Info } from "lucide-react"; // Info can be removed if not used elsewhere
+import { Download, Loader2, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { THEMES, ThemeKey } from "@/lib/constants";
@@ -33,6 +30,12 @@ const themeLayoutMap: Record<ThemeKey, React.FC<{ mdxContent: string }>> = {
     ghibli: GhibliLayout,
 };
 
+// Define Example Sites
+const exampleSites = [
+  { name: "Harvard Gazette", url: "https://news.harvard.edu/gazette/" },
+  { name: "Minimalist Baker", url: "https://minimalistbaker.com/" },
+];
+
 const normalizeUrl = (inputUrl: string): string => {
     let normalized = inputUrl.trim();
     if (!normalized) return "";
@@ -41,7 +44,7 @@ const normalizeUrl = (inputUrl: string): string => {
     }
     try {
         const urlObj = new URL(normalized);
-        normalized = urlObj.origin + urlObj.pathname.replace(/\/$/, "") + urlObj.search + urlObj.hash; // Ensure trailing slash removed from pathname only
+        normalized = urlObj.origin + urlObj.pathname.replace(/\/$/, "") + urlObj.search + urlObj.hash;
         return normalized;
     } catch (e) {
         console.warn("Could not normalize URL, returning as is:", inputUrl);
@@ -71,42 +74,46 @@ export default function HeroPreview() {
   useEffect(() => {
     const handler = setTimeout(() => {
         const normalizedInputUrl = url ? normalizeUrl(url) : "";
-        if ((normalizedInputUrl && normalizedInputUrl !== resultsUrl) || (url === "" && resultsUrl !== null)) {
+        if ((normalizedInputUrl && resultsUrl && normalizedInputUrl !== resultsUrl) || (url === "" && resultsUrl !== null)) {
             setPreviewResults({}); setFetchError(null); setMigrationError(null); setResultsUrl(null);
         }
     }, 300);
     return () => clearTimeout(handler);
   }, [url, resultsUrl]);
 
-   useEffect(() => {
-      if (Object.keys(previewResults).length === 0 && resultsUrl !== null) {
-          setResultsUrl(null);
-      }
-  }, [previewResults, resultsUrl]);
-
 
   const loadPreviewForTheme = useCallback(async (themeToLoad: ThemeKey, targetUrl: string) => {
-    if (previewResults[themeToLoad] && resultsUrl === targetUrl) {
+    const normalizedTargetUrl = normalizeUrl(targetUrl);
+
+    if (resultsUrl === normalizedTargetUrl && previewResults[themeToLoad]) {
+        console.log(`[Cache] Using cached data for theme: ${themeToLoad} and URL: ${normalizedTargetUrl}`);
         if (activeTheme !== themeToLoad) setActiveTheme(themeToLoad);
         if (currentTab !== "migrated") setCurrentTab("migrated");
         return;
     }
 
-    setIsLoading(true); setFetchError(null);
+    console.log(`[API Call] Fetching preview for URL: ${normalizedTargetUrl} with theme: ${themeToLoad}`);
+    setIsLoading(true);
+    setFetchError(null);
+    setMigrationError(null);
 
-    if (resultsUrl !== targetUrl) {
+    if (resultsUrl !== normalizedTargetUrl) {
+        console.log(`[Cache] Fetching for new URL ('${normalizedTargetUrl}' != '${resultsUrl}'). Clearing ALL cached results.`);
         setPreviewResults({});
-        setResultsUrl(targetUrl);
+        setResultsUrl(normalizedTargetUrl);
+    } else {
+         if(!resultsUrl) setResultsUrl(normalizedTargetUrl);
     }
 
     try {
       const response = await fetch("/api/preview", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wpUrl: targetUrl, theme: themeToLoad }),
+        body: JSON.stringify({ wpUrl: normalizedTargetUrl, theme: themeToLoad }),
       });
       const responseBody = await response.json();
       if (!response.ok) throw new Error(responseBody.error || `HTTP error! Status: ${response.status}`);
 
+      console.log(`[API Call] Success for theme: ${themeToLoad}. Caching result for URL: ${normalizedTargetUrl}`);
       setPreviewResults(prev => ({ ...prev, [themeToLoad]: responseBody as PreviewResult }));
       setActiveTheme(themeToLoad);
       setCurrentTab("migrated");
@@ -118,50 +125,64 @@ export default function HeroPreview() {
 
       setPreviewResults(prev => ({ ...prev, [themeToLoad]: undefined }));
 
-       const otherResultsExist = Object.entries(previewResults).some(
-           ([key, value]) => key !== themeToLoad && value !== undefined
-       );
+      const otherResultsExist = Object.values(previewResults).some(
+          (value, index) => themeKeys[index] !== themeToLoad && value !== undefined
+      );
 
-       if (resultsUrl === targetUrl && !otherResultsExist) {
-            setResultsUrl(null);
-       }
+      if (resultsUrl === normalizedTargetUrl && !otherResultsExist) {
+           console.warn(`Clearing resultsUrl as fetch failed for ${themeToLoad} and no other valid results exist for ${normalizedTargetUrl}`);
+           setResultsUrl(null);
+      }
 
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewResults, resultsUrl, activeTheme, currentTab]);
 
 
   const handleInitialPreview = () => {
      if (!url) { setFetchError("Please enter a WordPress URL."); return; }
      const targetUrl = normalizeUrl(url);
-     if(targetUrl !== url) { setUrl(targetUrl); }
+     console.log(`[UI Action] Generate Previews clicked for input URL: ${url} (Target: ${targetUrl}) with selected theme: ${activeTheme}`);
      loadPreviewForTheme(activeTheme, targetUrl);
    };
+
+   const handleExampleClick = useCallback((exampleUrl: string) => {
+     if (isLoading || isMigrating) return;
+
+     const normalizedExampleUrl = normalizeUrl(exampleUrl);
+     console.log(`[UI Action] Example button clicked: ${normalizedExampleUrl}`);
+
+     setUrl(normalizedExampleUrl);
+
+     loadPreviewForTheme(activeTheme, normalizedExampleUrl);
+   }, [isLoading, isMigrating, activeTheme, loadPreviewForTheme]);
+
 
   const handleThemeSelectionChange = (newTheme: ThemeKey) => {
     if (isLoading || isMigrating || newTheme === activeTheme) return;
 
     setActiveTheme(newTheme);
 
-    const urlForExistingResults = resultsUrl;
-    if (urlForExistingResults) {
-         loadPreviewForTheme(newTheme, urlForExistingResults);
+    if (resultsUrl) {
+         console.log(`[UI Action] Theme selection changed to ${newTheme}. Loading preview for existing resultsUrl: ${resultsUrl}`);
+         loadPreviewForTheme(newTheme, resultsUrl);
     }
   };
 
 
   const handleMigrate = async () => {
-      const migrateUrl = resultsUrl;
-      if (!migrateUrl || !activeTheme || !previewResults[activeTheme]) {
+      if (!resultsUrl || !activeTheme || !previewResults[activeTheme]) {
         setMigrationError("Cannot migrate. Please generate a valid preview for the active theme first."); return;
       }
+      console.log(`[Migrate] Starting migration for ${resultsUrl} with theme ${activeTheme}`);
       setIsMigrating(true); setMigrationError(null); setFetchError(null);
 
       try {
         const response = await fetch("/api/migrate", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ wpUrl: migrateUrl, theme: activeTheme }),
+          body: JSON.stringify({ wpUrl: resultsUrl, theme: activeTheme }),
         });
 
         if (!response.ok) {
@@ -192,10 +213,11 @@ export default function HeroPreview() {
       } finally { setIsMigrating(false); }
   };
 
+  // --- Rendering Logic ---
+
   const renderSkeleton = () => ( <div className="p-6 space-y-4 animate-pulse"> <Skeleton className="h-8 w-3/4" /> <Skeleton className="h-4 w-1/2" /> <Skeleton className="h-40 w-full" /> <Skeleton className="h-4 w-full mt-4" /> <Skeleton className="h-4 w-full" /> <Skeleton className="h-4 w-5/6" /> </div> );
 
   const renderPreviewArea = () => {
-    const noDataLoadedYet = Object.keys(previewResults).length === 0 && resultsUrl === null;
     const firstResult = Object.values(previewResults).find(r => r !== undefined);
     const ActiveLayout = themeLayoutMap[activeTheme];
     const activePreviewData = previewResults[activeTheme];
@@ -204,7 +226,7 @@ export default function HeroPreview() {
         return (<div className="flex items-center justify-center h-full min-h-[400px] bg-gray-50/50 rounded"><div className="text-center p-6"><Image src="/placeholder.svg" width={400} height={200} alt="WP Offramp Placeholder" className="mx-auto mb-4 rounded border opacity-50" priority /><p className="text-muted-foreground">Enter URL & Select Theme above.</p></div></div>);
     }
     if (url && !isLoading && !resultsUrl && !fetchError) {
-        return (<div className="flex items-center justify-center h-full min-h-[400px] bg-gray-50/50 rounded"><div className="text-center p-6"><p className="text-lg font-medium text-muted-foreground">Click "Generate Previews" to start.</p></div></div>);
+        return (<div className="flex items-center justify-center h-full min-h-[400px] bg-gray-50/50 rounded"><div className="text-center p-6"><p className="text-lg font-medium text-muted-foreground">Click "Generate Previews" or try an example.</p></div></div>);
     }
     if (fetchError && !isLoading && !resultsUrl) {
          return (<div className="p-4 md:p-6"><Alert variant="destructive" className="m-4"><AlertCircle className="h-4 w-4" /> <AlertTitle>Preview Error</AlertTitle><AlertDescription>{fetchError}</AlertDescription></Alert></div>);
@@ -230,7 +252,7 @@ export default function HeroPreview() {
         </div>
 
         <TabsContent value="original" className="p-4 md:p-6 overflow-auto border-t sm:border-t-0 rounded-b-md flex-grow bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {isLoading && !firstResult ? renderSkeleton() :
+          {isLoading && resultsUrl && !firstResult ? renderSkeleton() :
            !firstResult ? <div className="text-muted-foreground p-4">Original content could not be loaded.</div> : (
               <>
                 <h2 className="text-xl font-semibold border-b pb-2 mb-4">{firstResult.title || 'Original Content'}</h2>
@@ -258,10 +280,12 @@ export default function HeroPreview() {
 
       {/* Top Section - Input & Initial Theme Selection */}
       <div className="w-full">
-        <Card id="input-section" className="border-none shadow-none bg-transparent">
-          <CardHeader className="pb-4 px-1 pt-0">
+        <Card id="input-section" className="border rounded-lg shadow-sm">
+          <CardHeader className="pb-4 pt-5 px-5">
+             <h3 className="text-lg font-medium">Enter URL or Try an Example</h3>
           </CardHeader>
-          <CardContent className="space-y-4 px-1 pb-2">
+          <CardContent className="space-y-4 px-5 pb-5">
+            {/* URL Input */}
             <div>
                 <Input
                     id="wordpress-url"
@@ -274,6 +298,27 @@ export default function HeroPreview() {
                     disabled={isLoading || isMigrating}
                 />
             </div>
+
+             {/* Added: Example Site Buttons Section - Moved Here */}
+              {/* Removed: Outer div and border-t */}
+              {/* Removed: Label "Or try an example:" */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2"> {/* Added mt-2 for spacing */}
+                {exampleSites.map((site) => (
+                  <Button
+                    key={site.name}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleExampleClick(site.url)}
+                    disabled={isLoading || isMigrating}
+                    className="font-normal justify-center text-center h-9"
+                  >
+                     {isLoading && normalizeUrl(url) === normalizeUrl(site.url) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                     {site.name}
+                  </Button>
+                ))}
+              </div>
+
+            {/* Initial Theme Selection Buttons */}
             <div>
                 <Label className="pb-2 block text-sm font-medium">Select Preview Theme</Label>
                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -295,10 +340,15 @@ export default function HeroPreview() {
                      ))}
                   </div>
             </div>
+
+            {/* Generate Button */}
             <Button onClick={handleInitialPreview} disabled={!url || isLoading || isMigrating} className="w-full px-6" size="lg">
-                {isLoading && !resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generating Initial Preview...</> ) : isLoading && resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading Theme...</> ) : ( resultsUrl ? "Regenerate Previews" : "Generate Previews" )}
+                 {isLoading && !resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generating Initial Preview...</> ) : isLoading && resultsUrl ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading Theme...</> ) : ( resultsUrl && resultsUrl === normalizeUrl(url) ? "Regenerate Previews" : "Generate Previews" )}
             </Button>
-             {fetchError && !resultsUrl && !isLoading && (<p className="text-sm text-red-600 pt-2 text-center">{fetchError}</p>)}
+             {fetchError && !resultsUrl && !isLoading && (<p className="text-sm text-red-600 pt-1 text-center">{fetchError}</p>)}
+
+             {/* Example buttons moved above */}
+
           </CardContent>
         </Card>
       </div>
@@ -340,7 +390,7 @@ export default function HeroPreview() {
         </div>
       )}
 
-        {/* Removed: Info alert previously shown when url is empty */}
+       {/* Removed: Final Info Alert Card */}
 
     </div>
   );
